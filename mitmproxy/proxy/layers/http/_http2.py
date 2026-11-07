@@ -464,9 +464,16 @@ class Http2Server(Http2Connection):
                 timestamp_end=None,
             )
             self.streams[event.stream_id] = StreamState.HEADERS_RECEIVED
+            priority = None
+            if p := event.priority_updated:
+                assert p.weight is not None and p.depends_on is not None
+                priority = (p.weight, p.depends_on, bool(p.exclusive))
             yield ReceiveHttp(
                 RequestHeaders(
-                    event.stream_id, request, end_stream=bool(event.stream_ended)
+                    event.stream_id,
+                    request,
+                    end_stream=bool(event.stream_ended),
+                    priority=priority,
                 )
             )
             return False
@@ -580,7 +587,7 @@ class Http2Client(Http2Connection):
             priority: Mapping[str, Any] = {}
             if self.fingerprint:
                 headers = self.fingerprint.format_headers(headers)
-                priority = self.fingerprint.priority
+                priority = self.fingerprint.priority or self._client_priority(event)
             self.h2_conn.send_headers(
                 event.stream_id,
                 headers=headers,
@@ -591,6 +598,18 @@ class Http2Client(Http2Connection):
             yield SendData(self.conn, self.h2_conn.data_to_send())
         else:
             yield from super()._handle_event(event)
+
+    def _client_priority(self, event: RequestHeaders) -> Mapping[str, Any]:
+        """The client's HEADERS priority as `send_headers()` arguments, with its parent mapped to our stream id."""
+        if event.priority is None:
+            return {}
+        weight, depends_on, exclusive = event.priority
+        return {
+            "priority_weight": weight,
+            # A parent that has no stream on this connection becomes the root.
+            "priority_depends_on": self.our_stream_id.get(depends_on, 0),
+            "priority_exclusive": exclusive,
+        }
 
     def handle_h2_event(self, event: h2.events.Event) -> CommandGenerator[bool]:
         if isinstance(event, h2.events.ResponseReceived):

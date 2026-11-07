@@ -24,7 +24,10 @@ class Http2Fingerprint:
     """Connection-level WINDOW_UPDATE increment sent after the preface. 0 sends none."""
     pseudo_header_order: tuple[bytes, ...]
     priority: Mapping[str, Any]
-    """Keyword arguments for `send_headers()`. Empty sends no priority on HEADERS frames."""
+    """
+    Keyword arguments for `send_headers()` that every HEADERS frame gets.
+    Empty forwards the priority of the client's HEADERS frame instead, or sends none if it had none.
+    """
     encoder: type[hpack.Encoder]
     crumble_cookies: bool
     """Split `cookie` into one field per crumb, splitting on `;` and dropping one following space."""

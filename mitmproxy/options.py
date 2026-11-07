@@ -150,8 +150,9 @@ class Options(optmanager.OptManager):
             None,
             """
             Make upstream HTTP/2 connections look like the named mytls browser profile, e.g. "chrome".
-            This sets the SETTINGS, the connection WINDOW_UPDATE, the pseudo-header order,
-            the HEADERS priority and the HPACK encoding. Requires the mytls package.
+            This sets the SETTINGS, the connection WINDOW_UPDATE, the pseudo-header order
+            and the HPACK encoding, and passes on the priority of the client's HEADERS frames.
+            Requires the mytls package.
             """,
         )
         self.add_option(

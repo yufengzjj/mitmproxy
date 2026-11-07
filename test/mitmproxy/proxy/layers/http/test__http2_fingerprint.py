@@ -44,12 +44,19 @@ class FakeProfile:
         return dict(CHROME_PRIORITY)
 
 
+class FakeForwardingProfile(FakeProfile):
+    def priority_for(self):
+        return {}
+
+
 @pytest.fixture
 def fake_mytls(monkeypatch):
     def profile(name):
-        if name != "chrome":
-            raise LookupError(f"unknown brand {name!r}")
-        return FakeProfile()
+        if name == "chrome":
+            return FakeProfile()
+        if name == "forwarding":
+            return FakeForwardingProfile()
+        raise LookupError(f"unknown brand {name!r}")
 
     browser_fp = types.ModuleType("mytls.browser_fp")
     browser_fp.profile = profile
@@ -195,3 +202,121 @@ def test_http2_client(tctx, fake_mytls):
         (b"cookie", b"a=1"),
         (b"cookie", b"b=2"),
     ]
+
+
+REQUEST = (
+    (b":method", b"GET"),
+    (b":scheme", b"http"),
+    (b":path", b"/"),
+    (b":authority", b"example.com"),
+)
+
+
+def test_http2_client_forwards_priority(tctx, fake_mytls):
+    tctx.options.http2_fingerprint = "forwarding"
+    playbook, cff = start_h2_client(tctx)
+    flow1 = Placeholder(HTTPFlow)
+    flow2 = Placeholder(HTTPFlow)
+    flow3 = Placeholder(HTTPFlow)
+    server = Placeholder(Server)
+    initial = Placeholder(bytes)
+    second = Placeholder(bytes)
+    third = Placeholder(bytes)
+    assert (
+        playbook
+        >> DataReceived(
+            tctx.client,
+            cff.build_headers_frame(
+                REQUEST,
+                flags=["END_STREAM", "PRIORITY"],
+                stream_id=1,
+                exclusive=True,
+                depends_on=0,
+                stream_weight=219,
+            ).serialize(),
+        )
+        << http.HttpRequestHeadersHook(flow1)
+        >> reply()
+        << http.HttpRequestHook(flow1)
+        >> reply()
+        << OpenConnection(server)
+        >> reply(None, side_effect=make_h2)
+        << SendData(server, initial)
+        >> DataReceived(
+            tctx.client,
+            cff.build_headers_frame(
+                REQUEST,
+                flags=["END_STREAM", "PRIORITY"],
+                stream_id=3,
+                exclusive=False,
+                depends_on=1,
+                stream_weight=99,
+            ).serialize(),
+        )
+        << http.HttpRequestHeadersHook(flow2)
+        >> reply()
+        << http.HttpRequestHook(flow2)
+        >> reply()
+        << SendData(server, second)
+        >> DataReceived(
+            tctx.client,
+            cff.build_headers_frame(
+                REQUEST,
+                flags=["END_STREAM", "PRIORITY"],
+                stream_id=5,
+                exclusive=False,
+                depends_on=7,
+                stream_weight=15,
+            ).serialize(),
+        )
+        << http.HttpRequestHeadersHook(flow3)
+        >> reply()
+        << http.HttpRequestHook(flow3)
+        >> reply()
+        << SendData(server, third)
+    )
+    *_, headers = decode_frames(initial())
+    assert "PRIORITY" in headers.flags
+    assert (headers.exclusive, headers.depends_on, headers.stream_weight) == (
+        True,
+        0,
+        219,
+    )
+    (headers,) = decode_frames(second())
+    assert (headers.exclusive, headers.depends_on, headers.stream_weight) == (
+        False,
+        1,
+        99,
+    )
+    # stream 7 has no stream on the server connection, so the request depends on the root.
+    (headers,) = decode_frames(third())
+    assert (headers.exclusive, headers.depends_on, headers.stream_weight) == (
+        False,
+        0,
+        15,
+    )
+
+
+def test_http2_client_without_client_priority(tctx, fake_mytls):
+    tctx.options.http2_fingerprint = "forwarding"
+    playbook, cff = start_h2_client(tctx)
+    flow = Placeholder(HTTPFlow)
+    server = Placeholder(Server)
+    initial = Placeholder(bytes)
+    assert (
+        playbook
+        >> DataReceived(
+            tctx.client,
+            cff.build_headers_frame(REQUEST, flags=["END_STREAM"]).serialize(),
+        )
+        << http.HttpRequestHeadersHook(flow)
+        >> reply()
+        << http.HttpRequestHook(flow)
+        >> reply()
+        << OpenConnection(server)
+        >> reply(None, side_effect=make_h2)
+        << SendData(server, initial)
+    )
+    *_, headers = decode_frames(initial())
+    assert isinstance(headers, hyperframe.frame.HeadersFrame)
+    assert "PRIORITY" not in headers.flags

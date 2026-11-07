@@ -162,6 +162,8 @@ class HttpStream(layer.Layer):
     flow: http.HTTPFlow
     stream_id: StreamId
     child_layer: layer.Layer | None = None
+    request_priority: tuple[int, int, bool] | None = None
+    """The client's HTTP/2 HEADERS priority, passed on to the server connection."""
 
     @cached_property
     def mode(self) -> HTTPMode:
@@ -214,6 +216,7 @@ class HttpStream(layer.Layer):
             self.flow = event.replay_flow
         self.flow.request = event.request
         self.flow.live = True
+        self.request_priority = event.priority
 
         if (yield from self.check_invalid(True)):
             return
@@ -303,7 +306,12 @@ class HttpStream(layer.Layer):
             self.client_state = self.state_errored
             return
         yield SendHttp(
-            RequestHeaders(self.stream_id, self.flow.request, end_stream=False),
+            RequestHeaders(
+                self.stream_id,
+                self.flow.request,
+                end_stream=False,
+                priority=self.request_priority,
+            ),
             self.context.server,
         )
         yield commands.Log(f"Streaming request to {self.flow.request.host}.")
@@ -394,7 +402,10 @@ class HttpStream(layer.Layer):
                 done_after_headers = not (content or self.flow.request.trailers)
                 yield SendHttp(
                     RequestHeaders(
-                        self.stream_id, self.flow.request, done_after_headers
+                        self.stream_id,
+                        self.flow.request,
+                        done_after_headers,
+                        priority=self.request_priority,
                     ),
                     self.context.server,
                 )

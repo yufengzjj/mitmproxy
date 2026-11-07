@@ -19,6 +19,11 @@ class RequestHeaders(HttpEvent):
     """
     replay_flow: HTTPFlow | None = None
     """If set, the current request headers belong to a replayed flow, which should be reused."""
+    priority: tuple[int, int, bool] | None = None
+    """
+    HTTP/2 only: the `(weight, depends_on, exclusive)` priority on the client's HEADERS frame,
+    or None if it carried none. `depends_on` is a stream id on the connection the request arrived on.
+    """
 
 
 @dataclass
