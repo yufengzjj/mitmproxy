@@ -28,6 +28,7 @@ export interface OptionsState {
     export_preserve_original_ip: boolean;
     hardump: string;
     http2: boolean;
+    http2_fingerprint: string | undefined;
     http2_ping_keepalive: number;
     http3: boolean;
     http_connect_send_host_header: boolean;
@@ -138,6 +139,7 @@ export const defaultState: OptionsState = {
     export_preserve_original_ip: false,
     hardump: "",
     http2: true,
+    http2_fingerprint: undefined,
     http2_ping_keepalive: 58,
     http3: true,
     http_connect_send_host_header: true,

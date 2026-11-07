@@ -47,6 +47,8 @@ class BufferedH2Connection(h2.connection.H2Connection):
 
     stream_buffers: collections.defaultdict[int, collections.deque[SendH2Data]]
     stream_trailers: dict[int, list[tuple[bytes, bytes]]]
+    connection_window_increment: int
+    """WINDOW_UPDATE increment for the whole connection, sent after the initial SETTINGS. 0 sends none."""
 
     def __init__(self, config: h2.config.H2Configuration):
         super().__init__(config)
@@ -57,14 +59,16 @@ class BufferedH2Connection(h2.connection.H2Connection):
         self.local_settings.acknowledge()
         self.stream_buffers = collections.defaultdict(collections.deque)
         self.stream_trailers = {}
+        # We increase the flow-control window for new streams with a setting,
+        # but we need to increase the overall connection flow-control window as well.
+        self.connection_window_increment = (
+            2**31 - 1 - self.inbound_flow_control_window
+        )  # maximum - default
 
     def initiate_connection(self):
         super().initiate_connection()
-        # We increase the flow-control window for new streams with a setting,
-        # but we need to increase the overall connection flow-control window as well.
-        self.increment_flow_control_window(
-            2**31 - 1 - self.inbound_flow_control_window
-        )  # maximum - default
+        if self.connection_window_increment:
+            self.increment_flow_control_window(self.connection_window_increment)
 
     def send_data(
         self,

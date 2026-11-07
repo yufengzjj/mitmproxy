@@ -1,5 +1,6 @@
 import collections
 import time
+from collections.abc import Mapping
 from collections.abc import Sequence
 from enum import Enum
 from logging import DEBUG
@@ -44,6 +45,8 @@ from ._base import format_error
 from ._base import HttpConnection
 from ._base import HttpEvent
 from ._base import ReceiveHttp
+from ._http2_fingerprint import Http2Fingerprint
+from ._http2_fingerprint import load as load_fingerprint
 from ._http_h2 import BufferedH2Connection
 from ._http_h2 import H2ConnectionLogger
 from mitmproxy import http
@@ -490,6 +493,7 @@ class Http2Client(Http2Connection):
     """A provisional currency limit before we get the server's first settings frame."""
     last_activity: float
     """Timestamp of when we've last seen network activity on this connection."""
+    fingerprint: Http2Fingerprint | None
 
     def __init__(self, context: Context):
         super().__init__(context, context.server)
@@ -498,6 +502,11 @@ class Http2Client(Http2Connection):
         self.h2_conn.local_settings.enable_push = 0
         # hyper-h2 pitfall: we need to acknowledge here, otherwise its sends out the old settings.
         self.h2_conn.local_settings.acknowledge()
+        if context.options.http2_fingerprint:
+            self.fingerprint = load_fingerprint(context.options.http2_fingerprint)
+            self.fingerprint.apply(self.h2_conn)
+        else:
+            self.fingerprint = None
         self.our_stream_id = {}
         self.their_stream_id = {}
         self.stream_queue = collections.defaultdict(list)
@@ -567,10 +576,16 @@ class Http2Client(Http2Connection):
                 yield RequestWakeup(self.context.options.http2_ping_keepalive)
             yield from super()._handle_event(event)
         elif isinstance(event, RequestHeaders):
+            headers = yield from format_h2_request_headers(self.context, event)
+            priority: Mapping[str, Any] = {}
+            if self.fingerprint:
+                headers = self.fingerprint.format_headers(headers)
+                priority = self.fingerprint.priority
             self.h2_conn.send_headers(
                 event.stream_id,
-                headers=(yield from format_h2_request_headers(self.context, event)),
+                headers=headers,
                 end_stream=event.end_stream,
+                **priority,
             )
             self.streams[event.stream_id] = StreamState.EXPECTING_HEADERS
             yield SendData(self.conn, self.h2_conn.data_to_send())

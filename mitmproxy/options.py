@@ -145,6 +145,16 @@ class Options(optmanager.OptManager):
             """,
         )
         self.add_option(
+            "http2_fingerprint",
+            Optional[str],
+            None,
+            """
+            Make upstream HTTP/2 connections look like the named mytls browser profile, e.g. "chrome".
+            This sets the SETTINGS, the connection WINDOW_UPDATE, the pseudo-header order,
+            the HEADERS priority and the HPACK encoding. Requires the mytls package.
+            """,
+        )
+        self.add_option(
             "http3",
             bool,
             True,

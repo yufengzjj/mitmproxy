@@ -228,6 +228,10 @@ def test_options():
             tctx.configure(ps, body_size_limit="invalid")
         tctx.configure(ps, body_size_limit="1m")
 
+        with pytest.raises(exceptions.OptionsError, match="http2_fingerprint"):
+            tctx.configure(ps, http2_fingerprint="not-a-profile")
+        tctx.configure(ps, http2_fingerprint=None)
+
         with pytest.raises(exceptions.OptionsError):
             tctx.configure(ps, connect_addr="invalid")
         tctx.configure(ps, connect_addr="1.2.3.4")

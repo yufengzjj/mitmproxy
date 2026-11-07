@@ -28,6 +28,7 @@ from mitmproxy.flow import Flow
 from mitmproxy.proxy import events
 from mitmproxy.proxy import mode_specs
 from mitmproxy.proxy import server_hooks
+from mitmproxy.proxy.layers.http import _http2_fingerprint as http2_fingerprint
 from mitmproxy.proxy.layers.tcp import TcpMessageInjected
 from mitmproxy.proxy.layers.udp import UdpMessageInjected
 from mitmproxy.proxy.layers.websocket import WebSocketMessageInjected
@@ -242,6 +243,11 @@ class Proxyserver(ServerManager):
                     f"Invalid body_size_limit specification: "
                     f"{ctx.options.body_size_limit}"
                 )
+        if "http2_fingerprint" in updated and ctx.options.http2_fingerprint:
+            try:
+                http2_fingerprint.load(ctx.options.http2_fingerprint)
+            except ValueError as e:
+                raise exceptions.OptionsError(f"Invalid http2_fingerprint: {e}")
         if "connect_addr" in updated:
             try:
                 if ctx.options.connect_addr:
